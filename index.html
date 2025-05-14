@@ -1,0 +1,706 @@
+<!DOCTYPE html><html><head><meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Underwater Wonderland</title>
+    <script src="https://cdn.jsdelivr.net/npm/p5@1.8.0/lib/p5.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #000;
+            overflow: hidden;
+            font-family: 'Arial', sans-serif;
+        }
+        #canvas-container {
+            width: 100%;
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: center;
+            position: relative;
+        }
+        #instructions {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 14px;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-radius: 5px;
+            max-width: 300px;
+            pointer-events: none;
+        }
+    </style>
+
+<base target="_self">
+
+
+    </head><body><div id="canvas-container"></div>
+    <div id="instructions">
+        <strong>Interactions:</strong><br>
+        • Click to guide fish<br>
+        • ↑ Arrow: Drop food<br>
+        • ↓ Arrow: Toggle predator<br>
+        • ←→ Arrows: Create currents<br>
+        • Space: Color burst
+    </div>
+
+    <script>
+        const sketch = (p) => {
+            // Fish school parameters
+            let fish = [];
+            let bubbles = [];
+            let food = [];
+            let currents = [];
+            let coral = [];
+            let treasure = [];
+            let predator = null;
+            let predatorActive = false;
+            let colorBurstActive = false;
+            let colorBurstTimer = 0;
+            let leaderFish = null;
+            let bgGradient;
+            
+            // Color palettes
+            const fishColors = [
+                p.color(255, 100, 100),
+                p.color(100, 255, 100),
+                p.color(100, 100, 255),
+                p.color(255, 255, 100),
+                p.color(255, 100, 255),
+                p.color(100, 255, 255)
+            ];
+            
+            const coralColors = [
+                p.color(255, 150, 150),
+                p.color(150, 255, 150),
+                p.color(150, 150, 255),
+                p.color(255, 200, 100)
+            ];
+            
+            p.setup = () => {
+                let canvas = p.createCanvas(p.windowWidth * 0.9, p.windowHeight * 0.9);
+                canvas.parent('canvas-container');
+                p.colorMode(p.HSB, 360, 100, 100, 1);
+                
+                // Create background gradient
+                bgGradient = p.createGraphics(p.width, p.height);
+                for (let y = 0; y < bgGradient.height; y++) {
+                    let inter = p.map(y, 0, bgGradient.height, 0, 1);
+                    let c = p.lerpColor(p.color(200, 80, 20), p.color(230, 90, 50), inter);
+                    bgGradient.stroke(c);
+                    bgGradient.line(0, y, bgGradient.width, y);
+                }
+                
+                // Create initial fish school
+                for (let i = 0; i < 30; i++) {
+                    fish.push(createFish(p.random(p.width), p.random(p.height)));
+                }
+                
+                // Create leader fish
+                leaderFish = createFish(p.width/2, p.height/2);
+                leaderFish.size *= 1.5;
+                leaderFish.color = p.color(255, 80, 80);
+                
+                // Create coral formations
+                for (let i = 0; i < 15; i++) {
+                    coral.push({
+                        x: p.random(p.width),
+                        y: p.random(p.height),
+                        size: p.random(30, 100),
+                        color: coralColors[p.floor(p.random(coralColors.length))]
+                    });
+                }
+                
+                // Create initial bubbles
+                for (let i = 0; i < 50; i++) {
+                    bubbles.push(createBubble());
+                }
+                
+                // Create treasure chests
+                for (let i = 0; i < 3; i++) {
+                    treasure.push({
+                        x: p.random(p.width),
+                        y: p.random(p.height),
+                        size: 40,
+                        active: true,
+                        timer: 0
+                    });
+                }
+                
+                // Initialize predator
+                predator = {
+                    x: -100,
+                    y: p.random(p.height),
+                    size: 120,
+                    speed: 2,
+                    direction: 1,
+                    active: false
+                };
+            };
+            
+            function createFish(x, y) {
+                return {
+                    x: x,
+                    y: y,
+                    size: p.random(15, 30),
+                    speed: p.random(1, 3),
+                    direction: p.random(p.TWO_PI),
+                    targetX: x,
+                    targetY: y,
+                    color: fishColors[p.floor(p.random(fishColors.length))],
+                    wiggleOffset: p.random(1000),
+                    wiggleSpeed: p.random(0.05, 0.2),
+                    wiggleAmount: p.random(5, 15),
+                    avoidanceRadius: 50,
+                    foodAttraction: 0,
+                    currentEffect: 0,
+                    hue: p.random(360)
+                };
+            }
+            
+            function createBubble() {
+                return {
+                    x: p.random(p.width),
+                    y: p.height + p.random(50),
+                    size: p.random(5, 20),
+                    speed: p.random(1, 3),
+                    wobble: p.random(0.1, 0.5),
+                    wobbleOffset: p.random(1000),
+                    opacity: p.random(50, 100)
+                };
+            }
+            
+            function createFood(x, y) {
+                return {
+                    x: x || p.random(p.width),
+                    y: y || -20,
+                    size: 8,
+                    speed: p.random(1, 2),
+                    color: p.color(50, 100, 100)
+                };
+            }
+            
+            p.draw = () => {
+                // Draw background
+                p.image(bgGradient, 0, 0);
+                
+                // Update and draw bubbles
+                updateBubbles();
+                
+                // Update and draw coral
+                drawCoral();
+                
+                // Update and draw treasure
+                updateTreasure();
+                
+                // Update and draw food
+                updateFood();
+                
+                // Update currents
+                updateCurrents();
+                
+                // Update predator
+                updatePredator();
+                
+                // Update fish behavior
+                updateFish();
+                
+   
+                            
+                // Draw light rays
+                drawLightRays();
+            };
+            
+            function updateBubbles() {
+                for (let i = bubbles.length - 1; i >= 0; i--) {
+                    let b = bubbles[i];
+                    b.y -= b.speed;
+                    b.x += p.noise(b.wobbleOffset + p.frameCount * 0.01) * b.wobble - b.wobble/2;
+                    
+                    p.noStroke();
+                    p.fill(200, 50, 100, b.opacity/100);
+                    p.ellipse(b.x, b.y, b.size);
+                    
+                    if (b.y < -b.size) {
+                        bubbles.splice(i, 1);
+                        bubbles.push(createBubble());
+                    }
+                }
+            }
+            
+            function drawCoral() {
+                for (let c of coral) {
+                    p.push();
+                    p.translate(c.x, c.y);
+                    p.noStroke();
+                    p.fill(c.color);
+                    
+                    let segments = 5;
+                    let segmentHeight = c.size / segments;
+                    
+                    for (let i = 0; i < segments; i++) {
+                        let w = p.map(i, 0, segments-1, c.size*0.3, c.size*0.1);
+                        let h = segmentHeight;
+                        let y = -i * segmentHeight;
+                        
+                        p.beginShape();
+                        p.vertex(-w/2, y);
+                        p.vertex(0, y - h/2);
+                        p.vertex(w/2, y);
+                        p.vertex(0, y + h/2);
+                        p.endShape(p.CLOSE);
+                    }
+                    
+                    p.pop();
+                }
+            }
+            
+            function updateTreasure() {
+                for (let t of treasure) {
+                    if (!t.active) {
+                        t.timer--;
+                        if (t.timer <= 0) {
+                            t.active = true;
+                            t.x = p.random(p.width);
+                            t.y = p.random(p.height);
+                        }
+                        continue;
+                    }
+                    
+                    // Draw treasure
+                    p.push();
+                    p.translate(t.x, t.y);
+                    
+                    // Chest base
+                    p.fill(200, 80, 50);
+                    p.rect(-t.size/2, -t.size/3, t.size, t.size/1.5, 5);
+                    
+                    // Chest top
+                    p.fill(180, 90, 60);
+                    p.arc(0, -t.size/3, t.size, t.size/2, p.PI, p.TWO_PI, p.CHORD);
+                    
+                    // Lock
+                    p.fill(50, 50, 50);
+                    p.rect(0, -t.size/3, t.size/5, t.size/8, 2);
+                    
+                    p.pop();
+                    
+                    // Check if leader fish is near
+                    if (p.dist(leaderFish.x, leaderFish.y, t.x, t.y) < t.size + leaderFish.size && t.active) {
+                        t.active = false;
+                        t.timer = 600; // 10 seconds at 60fps
+                        
+                        // Spawn golden fish
+                        for (let i = 0; i < 3; i++) {
+                            let f = createFish(t.x, t.y);
+                            f.color = p.color(50, 100, 100);
+                            f.size *= 1.3;
+                            fish.push(f);
+                        }
+                        
+                        // Create burst effect
+                        for (let i = 0; i < 30; i++) {
+                            let angle = p.random(p.TWO_PI);
+                            let speed = p.random(1, 3);
+                            food.push({
+                                x: t.x,
+                                y: t.y,
+                                size: 12,
+                                vx: p.cos(angle) * speed,
+                                vy: p.sin(angle) * speed,
+                                color: p.color(50, 100, 100)
+                            });
+                        }
+                    }
+                }
+            }
+            
+            function updateFood() {
+                for (let i = food.length - 1; i >= 0; i--) {
+                    let f = food[i];
+                    
+                    // Apply gravity if not moving outward from burst
+                    if (!f.vx) {
+                        f.y += f.speed;
+                    } else {
+                        f.x += f.vx;
+                        f.y += f.vy;
+                        f.vy += 0.05; // slight gravity
+                    }
+                    
+                    // Draw food
+                    p.noStroke();
+                    p.fill(f.color);
+                    p.ellipse(f.x, f.y, f.size);
+                    
+                    // Remove if off screen
+                    if (f.y > p.height + f.size || 
+                        f.x < -f.size || 
+                        f.x > p.width + f.size) {
+                        food.splice(i, 1);
+                        continue;
+                    }
+                    
+                    // Check if any fish eats the food
+                    for (let j = fish.length - 1; j >= 0; j--) {
+                        let fishy = fish[j];
+                        if (p.dist(fishy.x, fishy.y, f.x, f.y) < fishy.size/2 + f.size/2) {
+                            food.splice(i, 1);
+                            fishy.size = p.min(fishy.size * 1.05, 50); // Grow slightly
+                            fishy.foodAttraction = 30; // Attract other fish
+                            break;
+                        }
+                    }
+                    
+                    // Leader fish can also eat
+                    if (p.dist(leaderFish.x, leaderFish.y, f.x, f.y) < leaderFish.size/2 + f.size/2) {
+                        food.splice(i, 1);
+                        leaderFish.size = p.min(leaderFish.size * 1.02, 60);
+                    }
+                }
+            }
+            
+            function updateCurrents() {
+                for (let i = currents.length - 1; i >= 0; i--) {
+                    let c = currents[i];
+                    c.strength *= 0.98; // Fade over time
+                    
+                    // Draw current (subtle effect)
+                    p.push();
+                    p.translate(c.x, c.y);
+                    p.rotate(c.direction);
+                    
+                    p.noFill();
+                    p.stroke(200, 50, 100, 30);
+                    p.strokeWeight(3);
+                    for (let j = 0; j < 5; j++) {
+                        let offset = j * 10;
+                        p.beginShape();
+                        for (let x = -50; x <= 50; x += 10) {
+                            let y = p.sin(x * 0.1 + p.frameCount * 0.1) * 10;
+                            p.vertex(x, y + offset);
+                        }
+                        p.endShape();
+                    }
+                    
+                    p.pop();
+                    
+                    if (c.strength < 0.1) {
+                        currents.splice(i, 1);
+                    }
+                }
+            }
+            
+            function updatePredator() {
+                if (!predatorActive) return;
+                
+                // Move predator
+                predator.x += predator.speed * predator.direction;
+                
+                // Reverse direction at edges
+                if (predator.x > p.width + predator.size) {
+                    predator.direction = -1;
+                    predator.y = p.random(p.height);
+                } else if (predator.x < -predator.size) {
+                    predator.direction = 1;
+                    predator.y = p.random(p.height);
+                }
+                
+                // Draw predator (shark)
+                p.push();
+                p.translate(predator.x, predator.y);
+                if (predator.direction < 0) p.scale(-1, 1);
+                
+                p.noStroke();
+                
+                // Body
+                p.fill(40, 30, 30);
+                p.ellipse(0, 0, predator.size, predator.size/2);
+                
+                // Tail
+                p.beginShape();
+                p.vertex(predator.size/2, 0);
+                p.vertex(predator.size/2 + 30, -15);
+                p.vertex(predator.size/2 + 30, 15);
+                p.endShape(p.CLOSE);
+                
+                // Fin
+                p.beginShape();
+                p.vertex(-10, -predator.size/4);
+                p.vertex(10, -predator.size/3);
+                p.vertex(30, -predator.size/6);
+                p.endShape(p.CLOSE);
+                
+                // Eye
+                p.fill(0, 100, 100);
+                p.ellipse(-predator.size/4, -5, 8);
+                
+                p.pop();
+                
+                // Scare fish when predator is near
+                for (let fishy of fish) {
+                    let d = p.dist(fishy.x, fishy.y, predator.x, predator.y);
+                    if (d < 200) {
+                        let angle = p.atan2(fishy.y - predator.y, fishy.x - predator.x);
+                        fishy.direction = angle;
+                        fishy.speed = p.map(d, 0, 200, 5, 2, true);
+                    }
+                }
+            }
+            
+            function updateFish() {
+                // Update leader fish
+                updateLeaderFish();
+                
+                // Update school fish
+                for (let fishy of fish) {
+                    // Apply color burst effect if active
+                    if (colorBurstActive) {
+                        fishy.hue = (fishy.hue + 2) % 360;
+                        fishy.color = p.color(fishy.hue, 80, 80);
+                    } else {
+                        // Gradually return to original color
+                        fishy.color = p.lerpColor(fishy.color, fishColors[0], 0.01);
+                    }
+                    
+                    // Apply food attraction if active
+                    if (fishy.foodAttraction > 0) {
+                        fishy.foodAttraction--;
+                        // Other fish are attracted to this fish
+                        for (let other of fish) {
+                            if (other !== fishy && p.dist(other.x, other.y, fishy.x, fishy.y) < 100) {
+                                let angle = p.atan2(fishy.y - other.y, fishy.x - other.x);
+                                other.direction = p.lerp(other.direction, angle, 0.1);
+                            }
+                        }
+                    }
+                    
+                    // Avoid coral
+                    for (let c of coral) {
+                        let d = p.dist(fishy.x, fishy.y, c.x, c.y);
+                        if (d < fishy.size/2 + c.size/2) {
+                            let angle = p.atan2(fishy.y - c.y, fishy.x - c.x);
+                            fishy.direction = angle;
+                            fishy.speed = 3;
+                        }
+                    }
+                    
+                    // Avoid predator
+                    if (predatorActive) {
+                        let d = p.dist(fishy.x, fishy.y, predator.x, predator.y);
+                        if (d < 200) {
+                            let angle = p.atan2(fishy.y - predator.y, fishy.x - predator.x);
+                            fishy.direction = angle;
+                            fishy.speed = p.map(d, 0, 200, 5, 2, true);
+                        }
+                    }
+                    
+                    // Apply currents
+                    for (let c of currents) {
+                        let d = p.dist(fishy.x, fishy.y, c.x, c.y);
+                        if (d < 150) {
+                            let influence = p.map(d, 0, 150, c.strength, 0, true);
+                            fishy.direction = p.lerp(fishy.direction, c.direction, influence);
+                        }
+                    }
+                    
+                    // Schooling behavior - follow leader fish
+                    if (p.dist(fishy.x, fishy.y, leaderFish.x, leaderFish.y) < 200) {
+                        let angle = p.atan2(leaderFish.y - fishy.y, leaderFish.x - fishy.x);
+                        fishy.direction = p.lerp(fishy.direction, angle, 0.05);
+                        fishy.speed = p.lerp(fishy.speed, leaderFish.speed, 0.05);
+                    }
+                    
+                    // Random movement variation
+                    fishy.direction += p.random(-0.1, 0.1);
+                    fishy.speed = p.constrain(fishy.speed, 1, 3);
+                    
+                    // Move fish
+                    fishy.x += p.cos(fishy.direction) * fishy.speed;
+                    fishy.y += p.sin(fishy.direction) * fishy.speed;
+                    
+                    // Keep fish within bounds
+                    fishy.x = p.constrain(fishy.x, fishy.size/2, p.width - fishy.size/2);
+                    fishy.y = p.constrain(fishy.y, fishy.size/2, p.height - fishy.size/2);
+                    
+                    // Draw fish
+                    drawFish(fishy);
+                }
+            }
+            
+            function updateLeaderFish() {
+                // Move toward target
+                let angle = p.atan2(leaderFish.targetY - leaderFish.y, leaderFish.targetX - leaderFish.x);
+                leaderFish.direction = angle;
+                
+                // Speed based on distance to target
+                let distance = p.dist(leaderFish.x, leaderFish.y, leaderFish.targetX, leaderFish.targetY);
+                leaderFish.speed = p.map(distance, 0, 200, 0.5, 4, true);
+                
+                // Move fish
+                leaderFish.x += p.cos(leaderFish.direction) * leaderFish.speed;
+                leaderFish.y += p.sin(leaderFish.direction) * leaderFish.speed;
+                
+                // Draw leader fish (larger and with highlight)
+                p.push();
+                p.translate(leaderFish.x, leaderFish.y);
+                p.rotate(leaderFish.direction);
+                
+                // Highlight
+                p.fill(leaderFish.color);
+                p.ellipse(0, 0, leaderFish.size, leaderFish.size/2);
+                
+                // Eye
+                p.fill(0);
+                p.ellipse(leaderFish.size/4, 0, leaderFish.size/6);
+                
+                // Tail
+                p.triangle(
+                    -leaderFish.size/2, 0,
+                    -leaderFish.size, -leaderFish.size/3,
+                    -leaderFish.size, leaderFish.size/3
+                );
+                
+                p.pop();
+            }
+            
+            function drawFish(fishy) {
+                p.push();
+                p.translate(fishy.x, fishy.y);
+                p.rotate(fishy.direction);
+                
+                // Body
+                p.fill(fishy.color);
+                p.ellipse(0, 0, fishy.size, fishy.size/2);
+                
+                // Tail wiggle
+                let wiggle = p.sin(fishy.wiggleOffset + p.frameCount * fishy.wiggleSpeed) * fishy.wiggleAmount;
+                
+                // Tail
+                p.triangle(
+                    -fishy.size/2, 0,
+                    -fishy.size, -fishy.size/3 + wiggle,
+                    -fishy.size, fishy.size/3 - wiggle
+                );
+                
+                // Eye
+                p.fill(0);
+                p.ellipse(fishy.size/4, 0, fishy.size/8);
+                
+                p.pop();
+            }
+            
+            function drawLightRays() {
+                // Create subtle light ray effect
+                p.push();
+                p.blendMode(p.ADD);
+                
+                let centerX = p.width * 0.7;
+                let centerY = 0;
+                
+                for (let i = 0; i < 5; i++) {
+                    let angle = p.map(i, 0, 5, -p.PI/4, p.PI/4);
+                    let length = p.height * 1.5;
+                    let x2 = centerX + p.cos(angle) * length;
+                    let y2 = centerY + p.sin(angle) * length;
+                    
+                    let gradient = p.drawingContext.createLinearGradient(centerX, centerY, x2, y2);
+                    gradient.addColorStop(0, 'rgba(200, 200, 255, 0.1)');
+                    gradient.addColorStop(1, 'rgba(200, 200, 255, 0)');
+                    
+                    p.drawingContext.strokeStyle = gradient;
+                    p.drawingContext.lineWidth = 20;
+                    p.drawingContext.beginPath();
+                    p.drawingContext.moveTo(centerX, centerY);
+                    p.drawingContext.lineTo(x2, y2);
+                    p.drawingContext.stroke();
+                }
+                
+                p.pop();
+            }
+            
+            p.mousePressed = () => {
+                // Set leader fish target
+                leaderFish.targetX = p.mouseX;
+                leaderFish.targetY = p.mouseY;
+                
+                // Small chance to spawn a new fish
+                if (p.random() < 0.1 && fish.length < 50) {
+                    fish.push(createFish(p.mouseX, p.mouseY));
+                }
+            };
+            
+            p.keyPressed = () => {
+                // Up arrow - drop food
+                if (p.keyCode === p.UP_ARROW) {
+                    for (let i = 0; i < 5; i++) {
+                        food.push(createFood());
+                    }
+                }
+                
+                // Down arrow - toggle predator
+                if (p.keyCode === p.DOWN_ARROW) {
+                    predatorActive = !predatorActive;
+                    if (predatorActive) {
+                        predator.x = -predator.size;
+                        predator.y = p.random(p.height);
+                        predator.direction = 1;
+                    }
+                }
+                
+                // Left/right arrows - create currents
+                if (p.keyCode === p.LEFT_ARROW) {
+                    currents.push({
+                        x: 0,
+                        y: p.random(p.height),
+                        direction: p.PI/4,
+                        strength: 0.5
+                    });
+                }
+                
+                if (p.keyCode === p.RIGHT_ARROW) {
+                    currents.push({
+                        x: p.width,
+                        y: p.random(p.height),
+                        direction: -p.PI/4,
+                        strength: 0.5
+                    });
+                }
+                
+                // Space bar - color burst
+                if (p.key === ' ') {
+                    colorBurstActive = true;
+                    colorBurstTimer = 120; // 2 seconds at 60fps
+                    
+                    // Change all fish colors
+                    for (let fishy of fish) {
+                        fishy.hue = p.random(360);
+                        fishy.color = p.color(fishy.hue, 80, 80);
+                    }
+                }
+            };
+            
+            p.windowResized = () => {
+                p.resizeCanvas(p.windowWidth * 0.9, p.windowHeight * 0.9);
+                
+                // Recreate background gradient
+                bgGradient = p.createGraphics(p.width, p.height);
+                for (let y = 0; y < bgGradient.height; y++) {
+                    let inter = p.map(y, 0, bgGradient.height, 0, 1);
+                    let c = p.lerpColor(p.color(200, 80, 20), p.color(230, 90, 50), inter);
+                    bgGradient.stroke(c);
+                    bgGradient.line(0, y, bgGradient.width, y);
+                }
+            };
+        };
+        
+        new p5(sketch);
+    </script>
+
+              
+          
+                
+          
+              
+</body></html>
